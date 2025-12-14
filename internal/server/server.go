@@ -7,12 +7,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/nelsonfalves/go-line/constant"
-	"github.com/nelsonfalves/go-line/model"
-)
-
-const (
-	protocol = "tcp"
+	"github.com/nelsonfalves/go-line/internal/constant"
+	"github.com/nelsonfalves/go-line/internal/model"
 )
 
 type Server interface {
@@ -20,18 +16,18 @@ type Server interface {
 }
 
 type server struct {
-	clients map[net.Conn]model.User
+	clients map[net.Conn]string
 	mutex   sync.RWMutex
 }
 
 func New() Server {
 	return &server{
-		clients: make(map[net.Conn]model.User),
+		clients: make(map[net.Conn]string),
 	}
 }
 
 func (s *server) Start(port string) {
-	listener, err := net.Listen(protocol, port)
+	listener, err := net.Listen(constant.DefaultProtocol, port)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -45,24 +41,21 @@ func (s *server) Start(port string) {
 			return
 		}
 
-		go s.handle(conn)
+		go s.handleClient(conn)
 	}
 }
 
-func (s *server) handle(conn net.Conn) {
-	defer s.delete(conn)
+func (s *server) handleClient(conn net.Conn) {
+	defer s.close(conn)
 
 	buffer := make([]byte, constant.DefaultBufferSize)
-
 	n, err := conn.Read(buffer)
 	if err != nil {
 		return
 	}
 
 	name := string(buffer[:n])
-	user := model.NewUser(name)
-
-	s.register(conn, user)
+	s.register(conn, name)
 
 	for {
 		n, err := conn.Read(buffer)
@@ -74,38 +67,42 @@ func (s *server) handle(conn net.Conn) {
 		}
 
 		content := buffer[:n]
-		msg := model.NewMessage(user.Name, content)
 
-		s.broadcast(msg)
+		msg := model.Message{
+			Content: content,
+			Sender:  name,
+		}
+
+		s.broadcastMessage(msg, conn)
 	}
 }
 
-func (s *server) register(conn net.Conn, user model.User) {
+func (s *server) register(conn net.Conn, name string) {
 	s.mutex.Lock()
-	s.clients[conn] = user
-	fmt.Printf("Client connected: %s (Total clients: %d)\n", user.Name, len(s.clients))
+	s.clients[conn] = name
+	fmt.Printf("Client connected: %s (Total clients: %d)\n", name, len(s.clients))
 	s.mutex.Unlock()
 }
 
-func (s *server) broadcast(msg model.Message) {
+func (s *server) broadcastMessage(msg model.Message, sender net.Conn) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	for client := range s.clients {
-		addr := client.RemoteAddr().String()
-		if addr == msg.Sender {
+	for conn := range s.clients {
+		if conn == sender {
 			continue
 		}
 
-		_, err := client.Write(msg.Bytes())
+		_, err := conn.Write(msg.Bytes())
 		if err != nil {
+			addr := conn.RemoteAddr().String()
 			fmt.Printf("Error broadcasting to %s: %v\n", addr, err)
 			continue
 		}
 	}
 }
 
-func (s *server) delete(conn net.Conn) {
+func (s *server) close(conn net.Conn) {
 	s.mutex.Lock()
 	delete(s.clients, conn)
 	fmt.Printf("Client disconnected: %s (Total clients: %d)\n", conn.RemoteAddr().String(), len(s.clients))
