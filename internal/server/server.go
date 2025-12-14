@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/nelsonfalves/go-line/internal/constant"
@@ -58,8 +59,20 @@ func (s *server) handleClient(conn net.Conn) {
 		return
 	}
 
-	clientName := string(buffer[:n])
-	s.register(conn, clientName)
+	parts := strings.Split(string(buffer[:n]), "\n")
+	if len(parts) != 2 {
+		conn.Write([]byte("ERROR: Invalid format\n"))
+		return
+	}
+	username := strings.TrimSpace(parts[0])
+	password := strings.TrimSpace(parts[1])
+
+	if password != s.room.Password {
+		conn.Write([]byte("ERROR: Wrong password\n"))
+		return
+	}
+
+	s.register(conn, username)
 
 	for {
 		n, err := conn.Read(buffer)
@@ -73,7 +86,7 @@ func (s *server) handleClient(conn net.Conn) {
 		content := buffer[:n]
 		msg := model.Message{
 			Content: content,
-			Sender:  clientName,
+			Sender:  username,
 		}
 
 		s.broadcastMessage(msg, conn)

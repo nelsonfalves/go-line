@@ -14,13 +14,15 @@ type Client interface {
 }
 
 type client struct {
-	name string
-	conn net.Conn
+	conn     net.Conn
+	name     string
+	password string
 }
 
-func New(name string) Client {
+func New(name, password string) Client {
 	return &client{
-		name: name,
+		name:     name,
+		password: password,
 	}
 }
 
@@ -33,7 +35,7 @@ func (c *client) Connect(port string) {
 	defer conn.Close()
 
 	c.conn = conn
-	conn.Write([]byte(c.name))
+	conn.Write([]byte(c.name + "\n" + c.password + "\n"))
 
 	c.startCommunication()
 }
