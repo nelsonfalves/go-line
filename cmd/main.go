@@ -14,20 +14,21 @@ const (
 
 func main() {
 	args := os.Args
-	if len(args) < 3 {
-		fmt.Println("Please provide the initiation mode and a port number!")
+	if len(args) < 2 {
+		fmt.Println("Must provide at least two arguments.")
 		return
 	}
 
-	port := ":" + args[2]
+	port := ":" + args[1]
 
-	if args[1] == "server" {
+	if args[2] == "server" {
 		s := server.New()
 		s.Start(port)
 	}
 
-	if args[1] == "client" {
-		c := client.New()
+	if args[2] == "client" {
+		name := args[3]
+		c := client.New(name)
 		c.Connect(port)
 	}
 

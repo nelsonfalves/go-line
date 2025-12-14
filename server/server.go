@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/nelsonfalves/go-line/constant"
 	"github.com/nelsonfalves/go-line/model"
 )
 
@@ -19,13 +20,13 @@ type Server interface {
 }
 
 type server struct {
-	clients map[net.Conn]bool
+	clients map[net.Conn]model.User
 	mutex   sync.RWMutex
 }
 
 func New() Server {
 	return &server{
-		clients: make(map[net.Conn]bool),
+		clients: make(map[net.Conn]model.User),
 	}
 }
 
@@ -51,9 +52,18 @@ func (s *server) Start(port string) {
 func (s *server) handle(conn net.Conn) {
 	defer s.delete(conn)
 
-	s.register(conn)
+	buffer := make([]byte, constant.DefaultBufferSize)
 
-	buffer := make([]byte, 4096)
+	n, err := conn.Read(buffer)
+	if err != nil {
+		return
+	}
+
+	name := string(buffer[:n])
+	user := model.NewUser(name)
+
+	s.register(conn, user)
+
 	for {
 		n, err := conn.Read(buffer)
 		if err != nil {
@@ -63,18 +73,17 @@ func (s *server) handle(conn net.Conn) {
 			return
 		}
 
-		sender := conn.RemoteAddr().String()
 		content := buffer[:n]
-		msg := model.NewMessage(sender, content)
+		msg := model.NewMessage(user.Name, content)
 
 		s.broadcast(msg)
 	}
 }
 
-func (s *server) register(conn net.Conn) {
+func (s *server) register(conn net.Conn, user model.User) {
 	s.mutex.Lock()
-	s.clients[conn] = true
-	fmt.Printf("Client connected: %s (Total clients: %d)\n", conn.RemoteAddr().String(), len(s.clients))
+	s.clients[conn] = user
+	fmt.Printf("Client connected: %s (Total clients: %d)\n", user.Name, len(s.clients))
 	s.mutex.Unlock()
 }
 

@@ -3,11 +3,17 @@ package model
 type Room struct {
 	Name     string
 	Password string
-	Clients  map[string]*Client
+	Clients  map[string]*User
 }
 
-type Client struct {
+type User struct {
 	Name string
+}
+
+func NewUser(name string) User {
+	return User{
+		Name: name,
+	}
 }
 
 type Message struct {

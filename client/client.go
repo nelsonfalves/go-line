@@ -5,16 +5,22 @@ import (
 	"fmt"
 	"net"
 	"os"
+
+	"github.com/nelsonfalves/go-line/constant"
 )
 
 type Client interface {
 	Connect(port string)
 }
 
-type client struct{}
+type client struct {
+	name string
+}
 
-func New() Client {
-	return &client{}
+func New(name string) Client {
+	return &client{
+		name: name,
+	}
 }
 
 func (c *client) Connect(port string) {
@@ -26,21 +32,23 @@ func (c *client) Connect(port string) {
 	}
 	defer conn.Close()
 
+	conn.Write([]byte(c.name))
+
 	c.read(conn)
 }
 
 func (c *client) read(conn net.Conn) {
 	go func() {
-		buffer := make([]byte, 4096)
+		buffer := make([]byte, constant.DefaultBufferSize)
 		for {
 			n, err := conn.Read(buffer)
 			if err != nil {
 				fmt.Println("Disconnected from server")
 				return
 			}
-			msg := buffer[:n]
+			content := buffer[:n]
 
-			fmt.Print(string(msg))
+			fmt.Print(string(content))
 		}
 	}()
 
@@ -52,5 +60,7 @@ func (c *client) read(conn net.Conn) {
 			fmt.Println("Error sending:", err)
 			return
 		}
+		// Clear the typed message from terminal (move cursor up one line and clear it)
+		fmt.Print("\033[1A\033[2K")
 	}
 }
