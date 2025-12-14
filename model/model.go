@@ -9,3 +9,19 @@ type Room struct {
 type Client struct {
 	Name string
 }
+
+type Message struct {
+	Sender  string
+	Content []byte
+}
+
+func NewMessage(sender string, content []byte) Message {
+	return Message{
+		Sender:  sender,
+		Content: content,
+	}
+}
+
+func (m Message) Bytes() []byte {
+	return append([]byte(m.Sender+": "), m.Content...)
+}
