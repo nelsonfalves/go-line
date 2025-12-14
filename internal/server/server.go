@@ -16,13 +16,17 @@ type Server interface {
 }
 
 type server struct {
-	clients map[net.Conn]string
-	mutex   sync.RWMutex
+	room  *model.Room
+	mutex sync.RWMutex
 }
 
-func New() Server {
+func New(name, password string) Server {
 	return &server{
-		clients: make(map[net.Conn]string),
+		room: &model.Room{
+			Name:     name,
+			Password: password,
+			Clients:  make(map[net.Conn]string),
+		},
 	}
 }
 
@@ -54,8 +58,8 @@ func (s *server) handleClient(conn net.Conn) {
 		return
 	}
 
-	name := string(buffer[:n])
-	s.register(conn, name)
+	clientName := string(buffer[:n])
+	s.register(conn, clientName)
 
 	for {
 		n, err := conn.Read(buffer)
@@ -67,10 +71,9 @@ func (s *server) handleClient(conn net.Conn) {
 		}
 
 		content := buffer[:n]
-
 		msg := model.Message{
 			Content: content,
-			Sender:  name,
+			Sender:  clientName,
 		}
 
 		s.broadcastMessage(msg, conn)
@@ -79,33 +82,45 @@ func (s *server) handleClient(conn net.Conn) {
 
 func (s *server) register(conn net.Conn, name string) {
 	s.mutex.Lock()
-	s.clients[conn] = name
-	fmt.Printf("Client connected: %s (Total clients: %d)\n", name, len(s.clients))
-	s.mutex.Unlock()
+	defer s.mutex.Unlock()
+
+	if len(s.room.Clients) == 0 {
+		s.room.Host = conn
+		fmt.Printf("Host '%s' created room '%s'\n", name, s.room.Name)
+	}
+
+	s.room.Clients[conn] = name
+	fmt.Printf("Client connected: %s (Total clients: %d)\n", name, len(s.room.Clients))
 }
 
 func (s *server) broadcastMessage(msg model.Message, sender net.Conn) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	for conn := range s.clients {
+	clients := s.room.Clients
+
+	for conn := range clients {
 		if conn == sender {
 			continue
 		}
 
 		_, err := conn.Write(msg.Bytes())
 		if err != nil {
-			addr := conn.RemoteAddr().String()
-			fmt.Printf("Error broadcasting to %s: %v\n", addr, err)
+			clientName := clients[conn]
+			fmt.Printf("Error sending message to %s: %v\n", clientName, err)
 			continue
 		}
 	}
 }
 
 func (s *server) close(conn net.Conn) {
+	defer conn.Close()
+
+	clients := s.room.Clients
+	clientName := clients[conn]
+
 	s.mutex.Lock()
-	delete(s.clients, conn)
-	fmt.Printf("Client disconnected: %s (Total clients: %d)\n", conn.RemoteAddr().String(), len(s.clients))
+	delete(clients, conn)
+	fmt.Printf("Client disconnected: %s (Total clients: %d)\n", clientName, len(clients))
 	s.mutex.Unlock()
-	conn.Close()
 }

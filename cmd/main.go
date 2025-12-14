@@ -21,21 +21,24 @@ func main() {
 	}
 
 	port := ":" + args[1]
-	name := args[3]
+	mode := args[2]
+	roomName := args[3]
+	userName := args[4]
+	password := args[5]
 
-	if args[2] == "server" {
-		s := server.New()
+	if mode == "server" {
+		s := server.New(roomName, password)
 
 		go s.Start(port)
 
 		time.Sleep(100 * time.Millisecond)
 
-		c := client.New(name)
+		c := client.New(userName)
 		c.Connect(port)
 	}
 
-	if args[2] == "client" {
-		c := client.New(name)
+	if mode == "client" {
+		c := client.New(userName)
 		c.Connect(port)
 	}
 }
