@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -59,13 +60,11 @@ func (s *server) handleClient(conn net.Conn) {
 		return
 	}
 
-	parts := strings.Split(string(buffer[:n]), "\n")
-	if len(parts) != 2 {
-		conn.Write([]byte("ERROR: Invalid format\n"))
+	username, password, err := extractCredentials(buffer, n)
+	if err != nil {
+		conn.Write([]byte(fmt.Sprintf("ERROR: %s\n", err.Error())))
 		return
 	}
-	username := strings.TrimSpace(parts[0])
-	password := strings.TrimSpace(parts[1])
 
 	if password != s.room.Password {
 		conn.Write([]byte("ERROR: Wrong password\n"))
@@ -136,4 +135,24 @@ func (s *server) close(conn net.Conn) {
 	delete(clients, conn)
 	fmt.Printf("Client disconnected: %s (Total clients: %d)\n", clientName, len(clients))
 	s.mutex.Unlock()
+}
+
+func extractCredentials(buffer []byte, n int) (string, string, error) {
+	parts := strings.Split(string(buffer[:n]), "\n")
+	if len(parts) != 2 {
+		return "", "", errors.New("invalid credentials format")
+	}
+
+	username := strings.TrimSpace(parts[0])
+	password := strings.TrimSpace(parts[1])
+
+	if username == "" {
+		return "", "", errors.New("username cannot be empty")
+	}
+
+	if password == "" {
+		return "", "", errors.New("password cannot be empty")
+	}
+
+	return username, password, nil
 }
