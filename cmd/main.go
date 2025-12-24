@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -28,16 +29,17 @@ func main() {
 
 	if mode == "server" {
 		s := server.New(roomName, password)
-		go s.Start(port)
-
-		time.Sleep(100 * time.Millisecond)
-
-		c := client.New(username, password)
-		c.Connect(port)
+		go func() {
+			if err := s.Start(port); err != nil {
+				log.Fatal(err)
+			}
+		}()
 	}
 
-	if mode == "client" {
-		c := client.New(username, password)
-		c.Connect(port)
+	time.Sleep(100 * time.Millisecond)
+
+	c := client.New(username, password)
+	if err := c.Connect(port); err != nil {
+		log.Fatal(err)
 	}
 }

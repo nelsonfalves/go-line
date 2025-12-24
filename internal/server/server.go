@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -14,7 +13,7 @@ import (
 )
 
 type Server interface {
-	Start(port string)
+	Start(port string) error
 }
 
 type server struct {
@@ -34,55 +33,66 @@ func New(name, password string) Server {
 	}
 }
 
-func (s *server) Start(port string) {
+func (s *server) Start(port string) error {
 	listener, err := net.Listen(constant.DefaultProtocol, port)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to start server: %w", err)
 	}
 	defer listener.Close()
 
-	fmt.Printf("Server listening on %s\n", port)
+	fmt.Printf("server listening on %s\n", port)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			fmt.Println(err)
-			return
+			return fmt.Errorf("failed to accept connection: %w", err)
 		}
 
-		go s.handleClient(conn)
+		go func() {
+			if err := s.handleClient(conn); err != nil {
+				fmt.Printf("client error: %v\n", err)
+			}
+		}()
 	}
 }
 
-func (s *server) handleClient(conn net.Conn) {
+func (s *server) handleClient(conn net.Conn) error {
 	defer s.close(conn)
 
 	buffer := make([]byte, constant.DefaultBufferSize)
 	n, err := conn.Read(buffer)
 	if err != nil {
-		return
+		connErr := fmt.Errorf("failed to read credentials: %w", err)
+		s.sendError(conn, connErr)
+		return connErr
 	}
 
 	content := buffer[:n]
 	username, password, err := extractCredentials(content)
 	if err != nil {
-		conn.Write([]byte(fmt.Sprintf("error: %s\n", err.Error())))
-		return
+		connErr := fmt.Errorf("invalid credentials: %w", err)
+		s.sendError(conn, connErr)
+		return connErr
 	}
 
-	if password != s.room.Password {
-		conn.Write([]byte("error: wrong password\n"))
-		return
+	if err := s.authenticate(password); err != nil {
+		connErr := fmt.Errorf("authentication failed: %w", err)
+		s.sendError(conn, connErr)
+		return connErr
 	}
 
 	s.register(conn, username)
 
+	if _, err := conn.Write([]byte("OK\n")); err != nil {
+		return fmt.Errorf("failed to send success response: %w", err)
+	}
+
 	for {
 		n, err := conn.Read(buffer)
 		if err != nil {
-			if err != io.EOF {
-				fmt.Println("read error:", err)
+			if err == io.EOF {
+				return nil
 			}
-			return
+			return fmt.Errorf("failed to read from client: %w", err)
 		}
 
 		content := buffer[:n]
@@ -95,17 +105,25 @@ func (s *server) handleClient(conn net.Conn) {
 	}
 }
 
+func (s *server) sendError(conn net.Conn, connErr error) {
+	errorMsg := fmt.Sprintf("error: %v\n", connErr)
+
+	if _, err := conn.Write([]byte(errorMsg)); err != nil {
+		fmt.Printf("failed to send error to client: %v\n", err)
+	}
+}
+
 func (s *server) register(conn net.Conn, username string) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
 	if len(s.clients) == 0 {
 		s.host = conn
-		fmt.Printf("Host '%s' created room '%s'\n", username, s.room.Name)
+		fmt.Printf("host '%s' created room '%s'\n", username, s.room.Name)
 	}
 
 	s.clients[conn] = username
-	fmt.Printf("Client connected: %s (Total clients: %d)\n", username, len(s.clients))
+	fmt.Printf("client connected: %s (total clients: %d)\n", username, len(s.clients))
 }
 
 func (s *server) broadcast(msg model.Message) {
@@ -118,7 +136,7 @@ func (s *server) broadcast(msg model.Message) {
 		_, err := client.Write(msg.Bytes())
 		if err != nil {
 			clientName := clients[client]
-			fmt.Printf("Error sending message to %s: %v\n", clientName, err)
+			fmt.Printf("failed to send message to %s: %v\n", clientName, err)
 			continue
 		}
 	}
@@ -127,13 +145,16 @@ func (s *server) broadcast(msg model.Message) {
 func (s *server) close(conn net.Conn) {
 	defer conn.Close()
 
-	clients := s.clients
-	clientName := clients[conn]
-
 	s.mutex.Lock()
-	delete(clients, conn)
-	fmt.Printf("Client disconnected: %s (Total clients: %d)\n", clientName, len(clients))
-	s.mutex.Unlock()
+	defer s.mutex.Unlock()
+
+	if client, exists := s.clients[conn]; exists {
+		delete(s.clients, conn)
+		fmt.Printf("client disconnected: %s (total remaining clients: %d)\n", client, len(s.clients))
+		return
+	}
+
+	fmt.Printf("connection closed before registration (total clients: %d)\n", len(s.clients))
 }
 
 func extractCredentials(content []byte) (string, string, error) {
@@ -154,4 +175,11 @@ func extractCredentials(content []byte) (string, string, error) {
 	}
 
 	return username, password, nil
+}
+
+func (s *server) authenticate(password string) error {
+	if s.room.Password != password {
+		return errors.New("incorrect password")
+	}
+	return nil
 }
