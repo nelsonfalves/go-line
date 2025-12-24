@@ -30,6 +30,7 @@ func New(name, password string) Server {
 			Name:     name,
 			Password: password,
 		},
+		clients: make(map[net.Conn]string),
 	}
 }
 
@@ -61,7 +62,8 @@ func (s *server) handleClient(conn net.Conn) {
 		return
 	}
 
-	username, password, err := extractCredentials(buffer, n)
+	content := buffer[:n]
+	username, password, err := extractCredentials(content)
 	if err != nil {
 		conn.Write([]byte(fmt.Sprintf("error: %s\n", err.Error())))
 		return
@@ -89,7 +91,7 @@ func (s *server) handleClient(conn net.Conn) {
 			Content: content,
 		}
 
-		s.broadcast(conn, msg)
+		s.broadcast(msg)
 	}
 }
 
@@ -106,17 +108,13 @@ func (s *server) register(conn net.Conn, username string) {
 	fmt.Printf("Client connected: %s (Total clients: %d)\n", username, len(s.clients))
 }
 
-func (s *server) broadcast(sender net.Conn, msg model.Message) {
+func (s *server) broadcast(msg model.Message) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
 	clients := s.clients
 
 	for client := range clients {
-		if client == sender {
-			continue
-		}
-
 		_, err := client.Write(msg.Bytes())
 		if err != nil {
 			clientName := clients[client]
@@ -138,10 +136,10 @@ func (s *server) close(conn net.Conn) {
 	s.mutex.Unlock()
 }
 
-func extractCredentials(buffer []byte, n int) (string, string, error) {
-	parts := strings.Split(string(buffer[:n]), "\n")
+func extractCredentials(content []byte) (string, string, error) {
+	parts := strings.SplitN(strings.TrimSpace(string(content)), "\n", 2)
 	if len(parts) != 2 {
-		return "", "", errors.New("invalid credentials format")
+		return "", "", errors.New("invalid credentials")
 	}
 
 	username := strings.TrimSpace(parts[0])
