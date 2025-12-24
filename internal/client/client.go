@@ -15,13 +15,13 @@ type Client interface {
 
 type client struct {
 	conn     net.Conn
-	name     string
+	username string
 	password string
 }
 
-func New(name, password string) Client {
+func New(username, password string) Client {
 	return &client{
-		name:     name,
+		username: username,
 		password: password,
 	}
 }
@@ -29,13 +29,13 @@ func New(name, password string) Client {
 func (c *client) Connect(port string) {
 	conn, err := net.Dial(constant.DefaultProtocol, constant.DefaultHost+port)
 	if err != nil {
-		fmt.Println("Error connecting:", err)
+		fmt.Println("error connecting:", err)
 		return
 	}
 	defer conn.Close()
 
 	c.conn = conn
-	conn.Write([]byte(c.name + "\n" + c.password + "\n"))
+	conn.Write([]byte(c.username + "\n" + c.password + "\n"))
 
 	c.startCommunication()
 }
@@ -50,7 +50,7 @@ func (c *client) receiveMessages() {
 	for {
 		n, err := c.conn.Read(buffer)
 		if err != nil {
-			fmt.Println("Disconnected from server")
+			fmt.Println("disconnected from server")
 			return
 		}
 		content := buffer[:n]
@@ -65,7 +65,7 @@ func (c *client) sendMessages() {
 		msg := scanner.Text()
 		_, err := c.conn.Write([]byte(msg + "\n"))
 		if err != nil {
-			fmt.Println("Error sending:", err)
+			fmt.Println("error sending:", err)
 			return
 		}
 		// Clear the typed message from terminal (move cursor up one line and clear it)

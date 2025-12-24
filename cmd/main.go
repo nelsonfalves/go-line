@@ -28,7 +28,6 @@ func main() {
 
 	if mode == "server" {
 		s := server.New(roomName, password)
-
 		go s.Start(port)
 
 		time.Sleep(100 * time.Millisecond)

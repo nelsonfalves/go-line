@@ -18,8 +18,10 @@ type Server interface {
 }
 
 type server struct {
-	room  *model.Room
-	mutex sync.RWMutex
+	room    *model.Room
+	host    net.Conn
+	mutex   sync.RWMutex
+	clients map[net.Conn]string
 }
 
 func New(name, password string) Server {
@@ -27,7 +29,6 @@ func New(name, password string) Server {
 		room: &model.Room{
 			Name:     name,
 			Password: password,
-			Clients:  make(map[net.Conn]string),
 		},
 	}
 }
@@ -62,12 +63,12 @@ func (s *server) handleClient(conn net.Conn) {
 
 	username, password, err := extractCredentials(buffer, n)
 	if err != nil {
-		conn.Write([]byte(fmt.Sprintf("ERROR: %s\n", err.Error())))
+		conn.Write([]byte(fmt.Sprintf("error: %s\n", err.Error())))
 		return
 	}
 
 	if password != s.room.Password {
-		conn.Write([]byte("ERROR: Wrong password\n"))
+		conn.Write([]byte("error: wrong password\n"))
 		return
 	}
 
@@ -84,41 +85,41 @@ func (s *server) handleClient(conn net.Conn) {
 
 		content := buffer[:n]
 		msg := model.Message{
-			Content: content,
 			Sender:  username,
+			Content: content,
 		}
 
-		s.broadcastMessage(msg, conn)
+		s.broadcast(conn, msg)
 	}
 }
 
-func (s *server) register(conn net.Conn, name string) {
+func (s *server) register(conn net.Conn, username string) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if len(s.room.Clients) == 0 {
-		s.room.Host = conn
-		fmt.Printf("Host '%s' created room '%s'\n", name, s.room.Name)
+	if len(s.clients) == 0 {
+		s.host = conn
+		fmt.Printf("Host '%s' created room '%s'\n", username, s.room.Name)
 	}
 
-	s.room.Clients[conn] = name
-	fmt.Printf("Client connected: %s (Total clients: %d)\n", name, len(s.room.Clients))
+	s.clients[conn] = username
+	fmt.Printf("Client connected: %s (Total clients: %d)\n", username, len(s.clients))
 }
 
-func (s *server) broadcastMessage(msg model.Message, sender net.Conn) {
+func (s *server) broadcast(sender net.Conn, msg model.Message) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	clients := s.room.Clients
+	clients := s.clients
 
-	for conn := range clients {
-		if conn == sender {
+	for client := range clients {
+		if client == sender {
 			continue
 		}
 
-		_, err := conn.Write(msg.Bytes())
+		_, err := client.Write(msg.Bytes())
 		if err != nil {
-			clientName := clients[conn]
+			clientName := clients[client]
 			fmt.Printf("Error sending message to %s: %v\n", clientName, err)
 			continue
 		}
@@ -128,7 +129,7 @@ func (s *server) broadcastMessage(msg model.Message, sender net.Conn) {
 func (s *server) close(conn net.Conn) {
 	defer conn.Close()
 
-	clients := s.room.Clients
+	clients := s.clients
 	clientName := clients[conn]
 
 	s.mutex.Lock()
